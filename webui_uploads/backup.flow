@@ -1,0 +1,20 @@
+workflow backup_and_notify {
+  trigger cron "0 2 * * *"
+  env VARS { BACKUP_DIR = "/tmp/backup" }
+
+  step dump_db {
+    run "echo 'dumping db' > /tmp/db.sql"
+    timeout 10s
+    retries 1
+    on_error notify_admin
+  }
+
+  step compress {
+    depends_on dump_db
+    run "tar -czf ${BACKUP_DIR}/db_$(date +%F).tar.gz /tmp/db.sql"
+  }
+
+  notify notify_admin {
+    notify email "admin@example.com" subject "Backup failed" body "Step failed: ${failed_step}"
+  }
+}

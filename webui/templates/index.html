@@ -1,0 +1,287 @@
+<!-- webui/templates/index.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FlowScript UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .col { float:left; padding:10px; }
+    .left { width: 30%; }
+    .right { width: 65%; }
+    .card { border:1px solid #ddd; padding:10px; margin-bottom:10px; border-radius:6px; }
+    pre { background:#f7f7f7; padding:10px; max-height:300px; overflow:auto; }
+    .status-badge { display:inline-block; padding:4px 8px; margin:2px; border-radius:6px; color:#fff; font-size:12px; }
+    .s-queued { background:#999; } .s-running { background:#f39c12; } .s-succeeded { background:#27ae60; } .s-failed { background:#c0392b; }
+  </style>
+  <!-- Ace CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+  <h2>FlowScript Web UI</h2>
+
+  <div class="col left">
+    <div class="card">
+      <h3>Upload .flow</h3>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" id="file" name="file" accept=".flow,.txt"><br><br>
+        <button type="submit">Upload</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Uploaded files</h3>
+      <ul id="filesList"></ul>
+    </div>
+
+    <div class="card">
+      <h3>Editor</h3>
+      <select id="chooseFile"></select>
+      <button id="loadFileBtn">Load</button>
+      <button id="saveFileBtn">Save</button>
+      <div id="editor" style="height:300px;border:1px solid #ccc"></div>
+    </div>
+
+    <div class="card">
+      <h3>Active runs</h3>
+      <ul id="runs"></ul>
+    </div>
+  </div>
+
+  <div class="col right">
+    <div class="card">
+      <h3>Actions</h3>
+      <div>
+        <label>Choose file: <select id="chooseFileAction"></select></label>
+        <button id="emitBtn">Emit bytecode & create DAG</button>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Bytecode file: <input id="bcFilename" type="text" placeholder="out/your.flow.bc.json"></label>
+        <label>Mem(MB): <input id="mem" type="number" style="width:80px"></label>
+        <label>Workers: <input id="workers" type="number" style="width:80px"></label>
+        <button id="startBtn">Start run</button>
+        <button id="stopLatestBtn">Stop latest</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>DAG (SVG)</h3>
+      <div id="dagArea">No DAG yet</div>
+    </div>
+
+    <div class="card">
+      <h3>Step Status</h3>
+      <div id="statusPanel">No status</div>
+      <button id="startStatusStream">Start status stream</button>
+      <button id="stopStatusStream">Stop status stream</button>
+    </div>
+
+    <div class="card">
+      <h3>Logs</h3>
+      <div id="logArea"><pre id="logPre">No logs</pre></div>
+      <button id="streamBtn">Start log stream</button>
+      <button id="stopStreamBtn">Stop log stream</button>
+    </div>
+  </div>
+
+  <div style="clear:both"></div>
+
+<script>
+async function listFiles() {
+  const res = await fetch('/files');
+  const files = await res.json();
+  const filesList = document.getElementById('filesList');
+  const choose = document.getElementById('chooseFile');
+  const chooseAction = document.getElementById('chooseFileAction');
+  filesList.innerHTML = '';
+  choose.innerHTML = ''; chooseAction.innerHTML = '';
+  files.forEach(fn => {
+    const li = document.createElement('li');
+    li.innerHTML = `<a href="/raw/${encodeURIComponent(fn)}" target="_blank">${fn}</a>`;
+    filesList.appendChild(li);
+    const opt = document.createElement('option'); opt.value = fn; opt.textContent = fn;
+    choose.appendChild(opt);
+    const opt2 = opt.cloneNode(true);
+    chooseAction.appendChild(opt2);
+  });
+}
+
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const file = document.getElementById('file').files[0];
+  if (!file) return alert('pick a file');
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/upload', { method: 'POST', body: fd });
+  if (res.redirected) { window.location = res.url; } else { alert('uploaded'); listFiles(); }
+});
+
+document.getElementById('emitBtn').addEventListener('click', async () => {
+  const fn = document.getElementById('chooseFileAction').value;
+  if (!fn) return alert('choose a file first');
+  const res = await fetch(`/emit/${encodeURIComponent(fn)}`, { method: 'POST' });
+  const j = await res.json();
+  if (j.bytecode) {
+    document.getElementById('bcFilename').value = j.bytecode;
+    // load svg into DAG area
+    const svgUrl = `/dag/${encodeURIComponent(j.dag_svg)}`;
+    const r = await fetch(svgUrl);
+    const svgText = await r.text();
+    document.getElementById('dagArea').innerHTML = svgText;
+  } else {
+    alert('emit failed');
+  }
+});
+
+document.getElementById('startBtn').addEventListener('click', async () => {
+  const bc = document.getElementById('bcFilename').value;
+  if (!bc) return alert('enter bytecode filename');
+  const mem = document.getElementById('mem').value;
+  const workers = document.getElementById('workers').value;
+  const payload = { bytecode: bc };
+  if (mem) payload.mem_limit_mb = parseInt(mem);
+  if (workers) payload.max_workers = parseInt(workers);
+  const res = await fetch('/start', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const j = await res.json();
+  alert('started run: ' + j.run_id);
+  refreshRuns();
+});
+
+document.getElementById('stopLatestBtn').addEventListener('click', async () => {
+  const res = await fetch('/runs'); const j = await res.json();
+  const ids = Object.keys(j);
+  if (!ids.length) return alert('no runs');
+  const latest = ids[ids.length-1];
+  const r = await fetch(`/stop/${latest}`, { method: 'POST' });
+  if (r.ok) alert('stop sent for ' + latest);
+  refreshRuns();
+});
+
+async function refreshRuns() {
+  const res = await fetch('/runs');
+  const j = await res.json();
+  const ul = document.getElementById('runs');
+  ul.innerHTML = '';
+  for (const k of Object.keys(j)) {
+    const info = j[k];
+    const li = document.createElement('li');
+    li.textContent = `${k} : ${info.status}`;
+    const logBtn = document.createElement('button');
+    logBtn.textContent = 'View Log';
+    logBtn.onclick = async ()=> {
+      const r = await fetch(`/logs/${k}`);
+      const txt = await r.text();
+      document.getElementById('logPre').textContent = txt;
+    };
+    li.appendChild(logBtn);
+    ul.appendChild(li);
+  }
+}
+
+document.getElementById('startStatusStream').addEventListener('click', async () => {
+  const res = await fetch('/runs'); const runs = await res.json();
+  const ids = Object.keys(runs);
+  if (!ids.length) return alert('no runs');
+  const rid = ids[ids.length-1];
+  startStatusSSE(rid);
+});
+
+let statusEventSource = null;
+function startStatusSSE(run_id) {
+  if (statusEventSource) statusEventSource.close();
+  statusEventSource = new EventSource(`/stream-status/${run_id}`);
+  const panel = document.getElementById('statusPanel');
+  panel.innerHTML = '';
+  statusEventSource.onmessage = (ev) => {
+    try {
+      const obj = JSON.parse(ev.data);
+      if (obj.type === 'status') {
+        updateStatus(obj.step, obj.status);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+  statusEventSource.onerror = ()=> { console.log('status SSE error'); }
+}
+
+document.getElementById('stopStatusStream').addEventListener('click', ()=> {
+  if (statusEventSource) { statusEventSource.close(); statusEventSource = null; }
+});
+
+function updateStatus(step, status) {
+  const panel = document.getElementById('statusPanel');
+  // update badge
+  let el = document.getElementById('status-'+step);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'status-'+step;
+    panel.appendChild(el);
+  }
+  el.className = 'status-badge s-'+status;
+  el.textContent = `${step}: ${status}`;
+  // try color DAG node: find <text> elements inside SVG that match step and color nearest rect
+  try {
+    const svg = document.querySelector('#dagArea svg');
+    if (!svg) return;
+    // find text elements
+    const texts = svg.querySelectorAll('text');
+    texts.forEach(t => {
+      if ((t.textContent || '').trim() === step) {
+        // find preceding rect sibling (Graphviz uses <g> group; rect may be sibling)
+        let parent = t.parentElement;
+        // within group find rect
+        const rect = parent.querySelector('rect');
+        if (rect) {
+          if (status === 'running') rect.setAttribute('fill', '#f39c12');
+          else if (status === 'succeeded') rect.setAttribute('fill', '#27ae60');
+          else if (status === 'failed') rect.setAttribute('fill', '#c0392b');
+          else if (status === 'queued') rect.setAttribute('fill', '#999999');
+        }
+      }
+    });
+  } catch (e) {
+    // ignore SVG coloring errors
+    console.log('svg color error', e);
+  }
+}
+
+let logES = null;
+document.getElementById('streamBtn').addEventListener('click', async () => {
+  const res = await fetch('/runs'); const runs = await res.json();
+  const ids = Object.keys(runs);
+  if (!ids.length) return alert('no runs');
+  const rid = ids[ids.length-1];
+  if (logES) logES.close();
+  logES = new EventSource(`/stream/${rid}`);
+  const pre = document.getElementById('logPre'); pre.textContent = '';
+  logES.onmessage = (ev) => { pre.textContent += ev.data + '\n'; pre.scrollTop = pre.scrollHeight; };
+});
+
+document.getElementById('stopStreamBtn').addEventListener('click', () => { if (logES) { logES.close(); logES = null; } });
+
+/* Editor integration (Ace) */
+const editor = ace.edit("editor");
+editor.session.setMode("ace/mode/text");
+document.getElementById('loadFileBtn').addEventListener('click', async () => {
+  const fn = document.getElementById('chooseFile').value;
+  if (!fn) return alert('choose a file');
+  const r = await fetch(`/raw/${encodeURIComponent(fn)}`);
+  const txt = await r.text();
+  editor.setValue(txt, -1);
+});
+document.getElementById('saveFileBtn').addEventListener('click', async () => {
+  const fn = document.getElementById('chooseFile').value;
+  if (!fn) return alert('choose a file');
+  const content = editor.getValue();
+  await fetch(`/save/${encodeURIComponent(fn)}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content}) });
+  alert('saved');
+});
+
+window.onload = async () => {
+  await listFiles();
+  setInterval(refreshRuns, 3000);
+};
+</script>
+</body>
+</html>

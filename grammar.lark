@@ -1,0 +1,32 @@
+?start: workflow+
+
+
+workflow: "workflow" NAME "{" workflow_body "}"
+workflow_body: (trigger | env | step | notify)*
+
+
+step: "step" NAME "{" step_body "}"
+step_body: (run | timeout | retries | depends_on | when | on_error)*
+run: "run" STRING
+timeout: "timeout" DURATION
+retries: "retries" NUMBER
+depends_on: "depends_on" NAME
+when: "when" NAME
+on_error: "on_error" NAME
+
+
+trigger: "trigger" NAME STRING
+notify: "notify" NAME "{" notify_body "}"
+notify_body: ("notify" "email" STRING "subject" STRING "body" STRING)
+
+
+env: "env" NAME "{" env_body "}"
+env_body: (NAME "=" STRING)*
+
+
+%import common.CNAME -> NAME
+%import common.ESCAPED_STRING -> STRING
+%import common.SIGNED_NUMBER -> NUMBER
+%import common.WS
+%ignore WS
+DURATION: /[0-9]+s/
