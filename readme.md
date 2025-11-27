@@ -1,272 +1,64 @@
+# FlowScript — Workflow Automation Compiler & Runtime
 
-# **FlowScript – A Lightweight Workflow Automation DSL + Compiler, Runtime, and Web UI**
+FlowScript is a domain-specific language (DSL) and execution engine for defining, compiling, and running automated workflows. It features a parallel virtual machine, dependency management, and a real-time Web UI.
 
-FlowScript is a **custom domain-specific language (DSL)** designed to define, visualize, and execute multi-step workflows.
-It includes a full **compiler pipeline**, **parallel execution engine**, and a **modern Web UI** with live logs, step status updates, and DAG visualization.
+## 🚀 Features
+* **Custom DSL:** Clean syntax for defining steps, dependencies, and triggers.
+* **Compiler:** Transpiles `.flow` code into optimized JSON bytecode.
+* **Parallel VM:** Executes independent steps concurrently (Thread-based).
+* **Sandboxing:** Enforces memory limits and timeouts per step.
+* **Real-time UI:** Live DAG visualization and log streaming via Server-Sent Events (SSE).
+* **Fault Tolerance:** Automatic retries and error handling notifications.
 
-This project demonstrates concepts from **compilers**, **concurrency**, **runtime systems**, and **DevOps automation**, packaged into an understandable and practical system.
+## 🛠️ Tech Stack
+* **Language:** Python 3.13
+* **Parser:** Lark (EBNF Grammar)
+* **Backend:** Flask, APScheduler
+* **Frontend:** HTML5, JavaScript (No frameworks), Ace Editor
+* **Visualization:** Graphviz
 
----
+## 📦 Installation
 
-## 🚀 **Features**
+1.  **Clone the repository**
+2.  **Install Graphviz** (Required for visualization)
+    * Download from [graphviz.org](https://graphviz.org/) and add to System PATH.
+3.  **Install Python Dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### ✔️ **1. Custom DSL (FlowScript)**
+## ▶️ Usage
 
-Easy, human-readable workflow definition language:
+1.  **Start the Server**
+    ```bash
+    # PowerShell
+    $env:FLASK_APP = "webui/app.py"
+    python -m flask run --port 5000
+    ```
+2.  **Open Web UI**
+    * Go to `http://localhost:5000`
+3.  **Run a Workflow**
+    * Upload a `.flow` file.
+    * Click **Emit Bytecode**.
+    * Click **Start Run**.
 
-```txt
-workflow backup {
-  trigger cron "0 2 * * *"
-  env VARS { BACKUP_DIR = "/tmp/backup" }
+## 📄 Example Workflow
 
-  step dump_db {
-    run "mysqldump mydb > db.sql"
-    retries 2
-    timeout 600s
+```flow
+workflow data_pipeline {
+  env CONFIG { DB_URL = "localhost:5432" }
+
+  step fetch_data {
+    run "echo 'fetching...'"
+    timeout 10s
   }
 
-  step compress {
-    depends_on dump_db
-    run "tar -czf ${BACKUP_DIR}/db.tar.gz db.sql"
+  step process_data {
+    depends_on fetch_data
+    run "echo 'processing...'"
   }
 
-  notify notify_admin {
-    "your@email.com"
-    "Backup Failed!"
-    "Step failed: ${failed_step}"
+  notify on_failure {
+    email "admin@example.com" subject "Pipeline Failed"
   }
 }
-```
-
----
-
-### ✔️ **2. Full Compiler Pipeline**
-
-FlowScript includes:
-
-* **Lexer + Parser** (Lark)
-* **AST Builder**
-* **Semantic Analyzer**
-* **IR (Intermediate Representation)**
-* **Bytecode Generator**
-* **Bytecode Loader & Executor**
-* **Safe Command Sandbox** (Windows compatible)
-
----
-
-### ✔️ **3. Parallel Execution Engine**
-
-A Python-based runtime capable of:
-
-* Executing independent workflow steps in parallel
-* Enforcing memory limits
-* Retrying failed steps
-* Handling timeouts
-* Triggering notifications on failure
-* Graceful cancellation
-
----
-
-### ✔️ **4. DAG Visualization**
-
-Every workflow automatically emits:
-
-* A **DAG (Directed Acyclic Graph)** PNG/SVG showing step dependencies
-* Node coloring for **running / success / failed**
-* Updated in real time in the Web UI
-
-Powered by: **Graphviz**
-
----
-
-### ✔️ **5. Modern Web UI**
-
-A full Flask-based web dashboard:
-
-* Upload `.flow` files
-* Edit workflows live
-* Visual DAG preview
-* Generate bytecode
-* Run workflows
-* Live logs (Server-Sent Events)
-* Live step-status updates
-* Stop/cancel workflow
-
----
-
-### ✔️ **6. Monitoring & Metrics**
-
-Exports Prometheus metrics:
-
-* Total steps started
-* Steps succeeded
-* Steps failed
-* Running steps
-* Notifications emitted
-
----
-
-## 🧩 **Architecture Overview**
-
-```
-FlowScript Source (.flow)
-         │
-         ▼
-   Parser (Lark)
-         │
-         ▼
-Abstract Syntax Tree (AST)
-         │
-         ▼
-  Semantic Analyzer
-         │
-         ▼
-      IR Builder
-         │
-         ▼
-  Bytecode (.bc.json)
-         │
-         ▼
-Parallel Execution VM
-         │
-         ├── Logs
-         ├── Notifications
-         ├── Prometheus Metrics
-         └── DAG Node Status
-```
-
----
-
-## 🛠️ **Tech Stack**
-
-| Component        | Technology               |
-| ---------------- | ------------------------ |
-| DSL Parsing      | Lark Parser              |
-| Compiler Backend | Python                   |
-| Runtime VM       | Python (thread/parallel) |
-| Web UI           | Flask + HTML/JS          |
-| Live Logs        | Server Sent Events (SSE) |
-| Visualization    | Graphviz                 |
-| Monitoring       | Prometheus client        |
-| Sandbox          | psutil + subprocess      |
-
----
-
-## 📦 **Installation**
-
-### Clone the repo
-
-```bash
-git clone https://github.com/<your-username>/flowscript
-cd flowscript
-```
-
-### Create virtual environment
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-### Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## ▶️ **How to Use**
-
-### 1. Run the Web UI
-
-```bash
-python webui/app.py
-```
-
-Open:
-👉 [http://localhost:5000](http://localhost:5000)
-
-### 2. Run compiler/debug tools
-
-```bash
-python cli.py parse examples/backup.flow
-python cli.py check examples/backup.flow
-python cli.py transpile examples/backup.flow out/run_backup.py
-python cli.py emit-bytecode examples/backup.flow out/backup.bc.json
-```
-
-### 3. Run with metrics
-
-```bash
-python cli.py run-with-monitor out/backup.bc.json 8000
-```
-
-Metrics at:
-👉 [http://localhost:8000/metrics](http://localhost:8000/metrics)
-
----
-
-## 📊 **Screenshots**
-
-(You can add these once UI is working)
-
-* UML diagram
-* DAG visualization
-* Web UI main page
-* Logs streaming
-* Metrics screenshot
-
----
-
-## 🧪 **Testing**
-
-```bash
-pytest -q
-```
-
----
-
-## 📚 **Project Goal**
-
-This project was built as a **major academic project** showcasing:
-
-* DSL design
-* Compiler construction
-* Static + dynamic analysis
-* Workflow automation
-* Parallel runtimes
-* Monitoring & observability
-* Web-based control systems
-
----
-
-## 🚧 **Future Enhancements**
-
-* Built-in step caching
-* More backends (e.g. Docker runner)
-* Real notification email sending
-* Web-based DAG editor
-* Workflow versioning + history
-
----
-
-## 💡 **Why This Project Is Unique**
-
-Unlike typical college projects (todo apps, URL detection, ML models), this project:
-* Invents a **new language**, not just an app
-* Builds a real **compiler + VM**
-* Handles concurrency, cancellation, sandboxing
-* Includes **visualization and monitoring**
-* Has a **professional-grade UI**
-* Demonstrates deep system design skills
----
-
-## 🧑‍💻 **Author**
-
-Shivam Dhariwal
-✔ UML diagrams (DFD, Class diagram, Activity, Sequence)
-✔ Installation guide
-✔ API documentation
-
-Just tell me: **"Generate report"** or **"Generate PPT"**.
